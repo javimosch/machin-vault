@@ -1,0 +1,121 @@
+// machin-vault — core: config, the per-kind backup/restore command templates, and
+// the agent-first commands (backup/list/get/unpack/restore). Everything runs real
+// tools (rsync, mongodump/mongorestore, pg_dump, mysqldump, gzip, openssl) through the
+// `exec` builtin — machin orchestrates; it never reimplements them.
+//
+// Storage is stateless: artifacts live at <store>/<target>/<name>_<ts>_<sha8>.<ext>
+// (+ ".enc" when encrypted), so `list` just scans the filesystem — no index to corrupt.
+
+type Target struct {
+    name string
+    kind string        // file | mongo | postgres | mysql | custom
+    source string      // file: rsync-style "host:/path" or "/local/path"
+    ssh string         // db kinds: "user@host" (commands run there)
+    container string   // optional: run the dump inside `docker exec <container>`
+    db string
+    user string
+    password string
+    command string     // custom: a shell command that writes the artifact to stdout
+    restore string     // custom: a shell command that reads the artifact from stdin
+    ext string         // artifact extension (default per kind)
+    retention int      // keep N most recent unique versions (default 7)
+}
+
+type Config struct {
+    store string                 // base directory for stored artifacts
+    encrypt_password string      // optional: openssl aes-256 encryption at rest
+    targets []Target
+}
+
+// ---- agent-first output (stdout = JSON answer; stderr = structured error) ----
+
+func emit(body) { println("{\"version\":\"1\",\"ok\":true," + body + "}") }
+func die(code, msg) { write(2, "{\"version\":\"1\",\"ok\":false,\"error\":" + json(msg) + "}\n")  exit(code) }
+// exit codes: 0 ok · 80-89 input · 90-99 resource · 100-109 integration · 110-119 internal
+
+func load_config(path) (cfg) {
+    raw := read_file(path)
+    if raw == "" { die(80, "config not found or empty: " + path) }
+    cfg = parse(raw, Config{})
+    if cfg.store == "" { cfg.store = "/var/lib/machin-vault" }
+}
+
+func find_target(cfg, name) (t) {
+    for _, x := range cfg.targets {
+        if x.name == name { t = x  return t }
+    }
+    die(90, "no such target: " + name)
+}
+
+func ext_of(t) (e) {
+    e = t.ext
+    if e != "" { return e }
+    if t.kind == "mongo" { e = "archive.gz" }
+    if t.kind == "postgres" { e = "sql.gz" }
+    if t.kind == "mysql" { e = "sql.gz" }
+    if t.kind == "file" { e = "bin" }
+    if t.kind == "custom" { e = "bin" }
+}
+
+// ssh_prefix runs a command on the target host (optionally inside a container).
+func ssh_prefix(t) (p) {
+    p = ""
+    if t.ssh != "" { p = "ssh " + t.ssh + " " }
+    if t.container != "" { p = p + "docker exec " + t.container + " " }
+}
+
+// backup_cmd: a shell command that writes the target's artifact to the path `out`.
+func backup_cmd(t, out) (cmd) {
+    if t.kind == "file" {
+        cmd = "rsync -a --no-motd " + t.source + " " + out
+        return cmd
+    }
+    if t.kind == "mongo" {
+        cmd = ssh_prefix(t) + "mongodump --db " + t.db + " --archive --gzip > " + out
+        return cmd
+    }
+    if t.kind == "postgres" {
+        inner := "pg_dump -U " + t.user + " " + t.db + " | gzip"
+        if t.ssh != "" { cmd = "ssh " + t.ssh + " '" + inner + "' > " + out } else { cmd = inner + " > " + out }
+        return cmd
+    }
+    if t.kind == "mysql" {
+        inner := "mysqldump -u" + t.user + " -p" + t.password + " " + t.db + " | gzip"
+        if t.ssh != "" { cmd = "ssh " + t.ssh + " '" + inner + "' > " + out } else { cmd = inner + " > " + out }
+        return cmd
+    }
+    if t.kind == "custom" {
+        cmd = "( " + t.command + " ) > " + out
+        return cmd
+    }
+    die(80, "unknown kind: " + t.kind)
+}
+
+// restore_cmd: a shell command that restores from the (already-decrypted, on-disk)
+// artifact at path `in`.
+func restore_cmd(t, in) (cmd) {
+    if t.kind == "mongo" {
+        cmd = "cat " + in + " | " + ssh_prefix(t) + "mongorestore --archive --gzip --drop"
+        return cmd
+    }
+    if t.kind == "postgres" {
+        inner := "psql -U " + t.user + " " + t.db
+        if t.ssh != "" { cmd = "gunzip -c " + in + " | ssh " + t.ssh + " '" + inner + "'" } else { cmd = "gunzip -c " + in + " | " + inner }
+        return cmd
+    }
+    if t.kind == "mysql" {
+        inner := "mysql -u" + t.user + " -p" + t.password + " " + t.db
+        if t.ssh != "" { cmd = "gunzip -c " + in + " | ssh " + t.ssh + " '" + inner + "'" } else { cmd = "gunzip -c " + in + " | " + inner }
+        return cmd
+    }
+    if t.kind == "file" {
+        cmd = "rsync -a " + in + " " + t.source
+        return cmd
+    }
+    if t.kind == "custom" {
+        if t.restore == "" { die(91, "target " + t.name + " has no restore command") }
+        cmd = "cat " + in + " | ( " + t.restore + " )"
+        return cmd
+    }
+    die(80, "unknown kind: " + t.kind)
+}

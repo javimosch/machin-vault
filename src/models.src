@@ -1,0 +1,14 @@
+// models.src — SHARED between the native server (SSR) and the wasm client. Keep it
+// pure (no server-only builtins): it is composed into the wasm build too.
+
+func wrap(body) (s) { s = "{\"version\":\"1\",\"ok\":true," + body + "}" }
+
+// status_text maps a per-target UI state to slot text. The server SSRs state 0
+// (idle, empty); the wasm client drives 1..3 as a backup runs. Shared so both
+// render the "status_i" slot identically.
+func status_text(code) (s) {
+    s = ""
+    if code == 1 { s = "saving..." }
+    if code == 2 { s = "saved - reload to see it" }
+    if code == 3 { s = "failed" }
+}

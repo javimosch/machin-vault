@@ -1,0 +1,57 @@
+// client.src — the wasm client. The server SSRs the dashboard; this hydrates the
+// per-target "status_i" slots and gives instant, reactive feedback while a backup
+// runs. State is per-target ints (no strings cross the wasm boundary): the host
+// forwards the click, POSTs the backup, then calls back with the result.
+// Composed with reactive.src + models.src, built to wasm.
+
+extern "env" {
+    fn api_backup(i32)      // host: POST the target's /api/backup?t=... (url from the DOM)
+}
+
+var n = 0                   // number of targets (seeded from the SSR page)
+var states = []int{}        // per-target UI state: 0 idle, 1 saving, 2 done, 3 error
+var sig = 0                 // a version signal: bump to re-render the status slots
+
+func state_at(i) (v) {
+    v = 0
+    if i < len(states) { v = states[i] }
+}
+
+// set_n is called once by the host, from window.__NTARGETS.
+export func set_n(k) {
+    n = k
+    while len(states) < n { states = append(states, 0) }
+}
+
+func status_markup(i) (h) {
+    h = slot("status_" + str(i), func() { get(sig)  return status_text(state_at(i)) })
+}
+
+func build_slots() (h) {
+    h = ""
+    i := 0
+    while i < n { h = h + status_markup(i)  i = i + 1 }
+}
+
+export func start() {
+    sig = signal(0)
+    // hydrate the status_0..status_{n-1} slots the server already rendered. The
+    // surrounding dashboard markup is owned by SSR; we only bind these slots.
+    hydrate(build_slots())
+}
+
+// kick: the user clicked "Backup now" on target i — show "saving..." immediately,
+// then ask the host to POST. (Optimistic: the host confirms via done().)
+export func kick(i) {
+    while len(states) <= i { states = append(states, 0) }
+    states[i] = 1
+    set(sig, get(sig) + 1)
+    api_backup(int(i))
+}
+
+// done: the host reports the POST result (ok=1 / fail=0).
+export func done(i, ok) {
+    while len(states) <= i { states = append(states, 0) }
+    if ok == 1 { states[i] = 2 } else { states[i] = 3 }
+    set(sig, get(sig) + 1)
+}

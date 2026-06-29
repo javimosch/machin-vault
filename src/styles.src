@@ -1,0 +1,20 @@
+// styles.src — the dashboard CSS, embedded in the SSR page.
+func styles() (s) {
+    s = "<style>" +
+        ":root{--bg:#0b0e14;--card:#11161f;--mut:#7d8aa0;--fg:#e6edf3;--ac:#4cc38a;--bd:#1f2733;--warn:#e3b341}" +
+        "*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace}" +
+        "header{padding:18px 22px;border-bottom:1px solid var(--bd);display:flex;align-items:baseline;gap:12px}" +
+        "header h1{margin:0;font-size:16px}header .sub{color:var(--mut);font-size:12px}" +
+        "main{padding:18px 22px;max-width:1000px;margin:0 auto}" +
+        ".tgt{background:var(--card);border:1px solid var(--bd);border-radius:10px;margin:0 0 14px;overflow:hidden}" +
+        ".hd{display:flex;align-items:center;gap:10px;padding:12px 14px;border-bottom:1px solid var(--bd)}" +
+        ".hd b{font-size:14px}.kind{color:var(--mut);font-size:11px;border:1px solid var(--bd);border-radius:5px;padding:1px 6px}" +
+        ".grow{flex:1}.bk{background:var(--ac);color:#06281b;border:0;border-radius:6px;padding:6px 12px;font:inherit;font-weight:600;cursor:pointer}" +
+        ".bk:hover{filter:brightness(1.08)}.st{color:var(--warn);font-size:12px;min-width:1px}" +
+        "table{width:100%;border-collapse:collapse;font-size:12.5px}" +
+        "th{text-align:left;color:var(--mut);font-weight:500;padding:7px 14px;border-bottom:1px solid var(--bd)}" +
+        "td{padding:7px 14px;border-bottom:1px solid var(--bd);color:var(--fg)}tr:last-child td{border-bottom:0}" +
+        ".sha{color:var(--mut)}.enc{color:var(--ac)}.empty{color:var(--mut);padding:14px}" +
+        "footer{color:var(--mut);font-size:11px;padding:14px 22px;border-top:1px solid var(--bd)}a{color:var(--ac)}" +
+        "</style>"
+}

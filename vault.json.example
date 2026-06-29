@@ -1,0 +1,44 @@
+{
+  "store": "/var/lib/machin-vault",
+  "encrypt_password": "",
+
+  "targets": [
+    {
+      "name": "site-uploads",
+      "kind": "file",
+      "source": "/srv/app/uploads",
+      "retention": 7
+    },
+    {
+      "name": "orders-db",
+      "kind": "postgres",
+      "ssh": "deploy@db1.example.com",
+      "user": "postgres",
+      "db": "orders",
+      "retention": 14
+    },
+    {
+      "name": "sessions",
+      "kind": "mongo",
+      "ssh": "deploy@db1.example.com",
+      "db": "sessions",
+      "retention": 7
+    },
+    {
+      "name": "wp",
+      "kind": "mysql",
+      "ssh": "deploy@web1.example.com",
+      "user": "root",
+      "password": "CHANGE_ME",
+      "db": "wordpress",
+      "retention": 7
+    },
+    {
+      "name": "redis",
+      "kind": "custom",
+      "command": "ssh deploy@cache1 'redis-cli --rdb /dev/stdout'",
+      "restore": "ssh deploy@cache1 'redis-cli --pipe'",
+      "retention": 3
+    }
+  ]
+}

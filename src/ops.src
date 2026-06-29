@@ -1,0 +1,182 @@
+// machin-vault — operations. Stateless storage: <store>/<target>/<name>_<unixsec>_<sha8>.<ext>[.enc]
+
+func basename(p) (b) {
+    parts := split(p, "/")
+    b = parts[len(parts) - 1]
+}
+
+func sh(cmd) (out) {
+    code, o, err := exec(cmd)
+    if code != 0 { die(100, "command failed (" + str(code) + "): " + cmd + " :: " + trim(err)) }
+    out = o
+}
+
+func age_str(secs) (s) {
+    if secs < 90 { s = str(secs) + "s"  return s }
+    if secs < 5400 { s = str(secs / 60) + "m"  return s }
+    if secs < 172800 { s = str(secs / 3600) + "h"  return s }
+    s = str(secs / 86400) + "d"
+}
+
+func file_size(path) (n) {
+    code, o, _ := exec("stat -c%s " + path)
+    n = 0
+    if code == 0 { n = parse_int(trim(o)) }
+}
+
+// a parsed stored version
+type Ver struct { file string  unix int  sha string  ext string  enc int }
+
+// versions scans a target's dir, newest first.
+func versions(cfg, t) (out) {
+    out = []Ver{}
+    dir := cfg.store + "/" + t.name
+    names := list_dir(dir)
+    pre := t.name + "_"
+    for _, fn := range names {
+        if has_prefix(fn, pre) == false { continue }
+        rest := substr(fn, len(pre), len(fn))   // <unix>_<sha8>.<ext>[.enc]
+        us := index(rest, "_")
+        if us < 0 { continue }
+        unixs := substr(rest, 0, us)
+        tail := substr(rest, us + 1, len(rest))  // <sha8>.<ext>[.enc]
+        enc := 0
+        if has_suffix(tail, ".enc") { enc = 1  tail = substr(tail, 0, len(tail) - 4) }
+        dot := index(tail, ".")
+        sha := tail
+        ext := ""
+        if dot >= 0 { sha = substr(tail, 0, dot)  ext = substr(tail, dot + 1, len(tail)) }
+        v := Ver{file: dir + "/" + fn, unix: parse_int(unixs), sha: sha, ext: ext, enc: enc}
+        // insert newest-first
+        out = append(out, v)
+    }
+    // simple selection sort by unix desc (version counts are small)
+    i := 0
+    for i < len(out) {
+        m := i
+        j := i + 1
+        for j < len(out) { if out[j].unix > out[m].unix { m = j }  j = j + 1 }
+        tmp := out[i]  out[i] = out[m]  out[m] = tmp
+        i = i + 1
+    }
+}
+
+func ver_json(v) (s) {
+    s = "{\"v\":\"" + time_format(v.unix, "%Y-%m-%dT%H:%M:%SZ") + "\",\"unix\":" + str(v.unix) +
+        ",\"age\":\"" + age_str(now() - v.unix) + "\",\"size\":" + str(file_size(v.file)) +
+        ",\"sha\":\"" + v.sha + "\",\"encrypted\":" + str(v.enc == 1) + ",\"file\":" + json(v.file) + "}"
+}
+
+// pick resolves a version: "" / "latest" -> newest, else match by unix-prefix or sha.
+func pick(vs, version) (v) {
+    if len(vs) == 0 { die(90, "no backups for this target yet") }
+    if version == "" { v = vs[0]  return v }
+    if version == "latest" { v = vs[0]  return v }
+    for _, x := range vs {
+        if str(x.unix) == version { v = x  return v }
+        if x.sha == version { v = x  return v }
+    }
+    die(90, "no version matching: " + version)
+}
+
+// ---- commands (the *_body funcs do the work and RETURN a JSON body fragment, so
+// the CLI (emit) and the HTTP API (ok_json) share one implementation) ----
+
+func backup_body(cfg, t) (body) {
+    dir := cfg.store + "/" + t.name
+    sh("mkdir -p " + dir)
+    tmp := "/tmp/mv-" + to_hex(rand_bytes(8))
+    bc := backup_cmd(t, tmp)
+    code, _, err := exec(bc)
+    if code != 0 { system("rm -f " + tmp)  die(100, "backup failed: " + trim(err)) }
+    sha := substr(to_hex(sha256_bytes(read_file_bytes(tmp))), 0, 12)
+    vs := versions(cfg, t)
+    if len(vs) > 0 { if vs[0].sha == sha { system("rm -f " + tmp)  body = "\"target\":\"" + t.name + "\",\"skipped\":true,\"reason\":\"unchanged\",\"sha\":\"" + sha + "\""  return body } }
+    ts := str(now())
+    final := dir + "/" + t.name + "_" + ts + "_" + sha + "." + ext_of(t)
+    if cfg.encrypt_password != "" {
+        final = final + ".enc"
+        sh("openssl enc -aes-256-cbc -pbkdf2 -salt -in " + tmp + " -out " + final + " -pass pass:" + cfg.encrypt_password)
+        system("rm -f " + tmp)
+    } else {
+        sh("mv " + tmp + " " + final)
+    }
+    // retention: keep newest N
+    ret := t.retention
+    if ret <= 0 { ret = 7 }
+    vs2 := versions(cfg, t)
+    i := ret
+    for i < len(vs2) { system("rm -f " + vs2[i].file)  i = i + 1 }
+    body = "\"target\":\"" + t.name + "\",\"version\":" + str(now()) + ",\"sha\":\"" + sha + "\",\"file\":" + json(final) + ",\"size\":" + str(file_size(final)) + ",\"encrypted\":" + str(cfg.encrypt_password != "")
+}
+
+func op_backup(cfg, t) { emit(backup_body(cfg, t)) }
+
+func list_body(cfg, only) (s) {
+    s = "\"targets\":["
+    first := 1
+    for _, t := range cfg.targets {
+        if only != "" { if t.name != only { continue } }
+        if first == 0 { s = s + "," }
+        first = 0
+        vs := versions(cfg, t)
+        vj := ""
+        k := 0
+        for _, v := range vs { if k > 0 { vj = vj + "," }  vj = vj + ver_json(v)  k = k + 1 }
+        s = s + "{\"name\":\"" + t.name + "\",\"kind\":\"" + t.kind + "\",\"count\":" + str(len(vs)) + ",\"versions\":[" + vj + "]}"
+    }
+    s = s + "]"
+}
+
+func op_list(cfg, only) { emit(list_body(cfg, only)) }
+
+func op_get(cfg, name, version, to) {
+    if to == "" { die(80, "get requires --to <dir>") }
+    t := find_target(cfg, name)
+    v := pick(versions(cfg, t), version)
+    sh("mkdir -p " + to)
+    base := to + "/" + basename(v.file)
+    sh("cp " + v.file + " " + base)
+    emit("\"target\":\"" + name + "\",\"path\":" + json(base) + ",\"sha\":\"" + v.sha + "\",\"encrypted\":" + str(v.enc == 1))
+}
+
+// op_unpack decrypts (if needed) + decompresses (.gz) the artifact into a dir.
+func op_unpack(cfg, name, version, to) {
+    if to == "" { die(80, "unpack requires --to <dir>") }
+    t := find_target(cfg, name)
+    v := pick(versions(cfg, t), version)
+    sh("mkdir -p " + to)
+    src := v.file
+    if v.enc == 1 {
+        if cfg.encrypt_password == "" { die(80, "artifact is encrypted but no encrypt_password in config") }
+        dec := to + "/" + basename(substr(src, 0, len(src) - 4))
+        sh("openssl enc -d -aes-256-cbc -pbkdf2 -in " + src + " -out " + dec + " -pass pass:" + cfg.encrypt_password)
+        src = dec
+    } else {
+        sh("cp " + src + " " + to + "/" + basename(src))
+        src = to + "/" + basename(src)
+    }
+    out := src
+    if has_suffix(src, ".gz") {
+        out = substr(src, 0, len(src) - 3)
+        sh("gunzip -f " + src)
+    }
+    emit("\"target\":\"" + name + "\",\"path\":" + json(out) + ",\"note\":\"decrypted+decompressed; db archives may need their native restore\"")
+}
+
+func op_restore(cfg, name, version, yes) {
+    if yes == 0 { die(80, "restore is destructive — pass --yes to confirm") }
+    t := find_target(cfg, name)
+    v := pick(versions(cfg, t), version)
+    in := v.file
+    if v.enc == 1 {
+        if cfg.encrypt_password == "" { die(80, "artifact is encrypted but no encrypt_password in config") }
+        in = "/tmp/mv-restore-" + to_hex(rand_bytes(6))
+        sh("openssl enc -d -aes-256-cbc -pbkdf2 -in " + v.file + " -out " + in + " -pass pass:" + cfg.encrypt_password)
+    }
+    rc := restore_cmd(t, in)
+    code, _, err := exec(rc)
+    if v.enc == 1 { system("rm -f " + in) }
+    if code != 0 { die(100, "restore failed: " + trim(err)) }
+    emit("\"target\":\"" + name + "\",\"restored_version\":" + str(v.unix) + ",\"sha\":\"" + v.sha + "\"")
+}

@@ -1,0 +1,17 @@
+# build artifacts
+machin-vault
+app.wasm
+*.mfl
+src/host_gen.src
+
+# real configs hold credentials — keep them out of git (ship vault.json.example)
+vault.json
+*.local.json
+
+# the backup store
+store/
+/var/
+
+# os
+.DS_Store
+*.err

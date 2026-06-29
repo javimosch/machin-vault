@@ -1,0 +1,73 @@
+// server.src — the `serve` daemon: one native binary that serves the SSR dashboard
+// (works with no JS — the recovery "glance"), its own wasm client, and a JSON API.
+// Composed with machweb + vault + ops + models + styles + the embedded host_js().
+//
+// Mutating actions (backup) shell out to THIS binary's own CLI subcommand, so a
+// failing dump exits the child — never the daemon. Reads (list/SSR) run in-process.
+
+func arg0() (s) { a := args()  s = a[0] }
+
+func hsize(n) (s) {
+    if n < 1024 { s = str(n) + " B"  return s }
+    if n < 1048576 { s = str(n / 1024) + " KB"  return s }
+    if n < 1073741824 { s = str(n / 1048576) + " MB"  return s }
+    s = str(n / 1073741824) + " GB"
+}
+
+func ssr_target(cfg, t, idx) (h) {
+    vs := versions(cfg, t)
+    h = "<div class=tgt data-opt=\"" + str(idx) + "\">"
+    h = h + "<div class=hd><b>" + t.name + "</b><span class=kind>" + t.kind + "</span><span class=grow></span>"
+    h = h + "<button class=bk data-backup=\"/api/backup?t=" + t.name + "\">Backup now</button>"
+    h = h + "<span class=st data-s=\"status_" + str(idx) + "\"></span></div>"
+    if len(vs) == 0 {
+        h = h + "<div class=empty>no backups yet</div></div>"
+        return h
+    }
+    h = h + "<table><tr><th>when</th><th>age</th><th>size</th><th>sha</th><th>enc</th></tr>"
+    for _, v := range vs {
+        encs := ""
+        if v.enc == 1 { encs = "yes" }
+        h = h + "<tr><td>" + time_format(v.unix, "%Y-%m-%d %H:%M") + "</td><td>" + age_str(now() - v.unix) + "</td>"
+        h = h + "<td>" + hsize(file_size(v.file)) + "</td><td class=sha>" + v.sha + "</td><td class=enc>" + encs + "</td></tr>"
+    }
+    h = h + "</table></div>"
+}
+
+func page(cfg) (h) {
+    h = "<!doctype html><html lang=en><head><meta charset=utf-8>"
+    h = h + "<meta name=viewport content=\"width=device-width,initial-scale=1\">"
+    h = h + "<title>machin-vault</title>" + styles() + "</head><body>"
+    h = h + "<header><h1>machin-vault</h1><span class=sub>backup dashboard</span></header>"
+    h = h + "<main id=app>"
+    i := 0
+    for _, t := range cfg.targets { h = h + ssr_target(cfg, t, i)  i = i + 1 }
+    h = h + "</main>"
+    h = h + "<footer>" + str(len(cfg.targets)) + " targets &middot; <a href=/api/list>/api/list</a> &middot; one self-hosted binary, built with machin</footer>"
+    h = h + "<script>window.__NTARGETS=" + str(len(cfg.targets)) + "</script>"
+    h = h + "<script type=module>" + host_js() + "</script>"
+    h = h + "</body></html>"
+}
+
+func handle(cfg, cfgpath, self, req) (res) {
+    if req.path == "/app.wasm" {
+        return ok_wasm(read_file_bytes("app.wasm"))
+    }
+    if has_prefix(req.path, "/api/list") {
+        return ok_json(wrap(list_body(cfg, "")))
+    }
+    if has_prefix(req.path, "/api/backup") {
+        t := query(req, "t")
+        if t == "" { return bad_request("{\"version\":\"1\",\"ok\":false,\"error\":\"missing ?t=<target>\"}") }
+        code, out, err := exec(self + " -c " + cfgpath + " backup " + t)
+        if code != 0 { return ok_json("{\"version\":\"1\",\"ok\":false,\"error\":" + json(trim(err)) + "}") }
+        return ok_json(trim(out))
+    }
+    return ok_html(page(cfg))
+}
+
+func serve_app(cfg, cfgpath, port) {
+    self := arg0()
+    println("machin-vault dashboard on http://localhost:" + str(port) + "  (config " + cfgpath + ")")
+    serve(port, func(req) { return handle(cfg, cfgpath, self, req) })
+}
