@@ -81,9 +81,8 @@ Schedule it with plain cron — the tool is stateless, so a bare
 
 ## Build
 
-Needs [machin](https://github.com/javimosch/machin) (with the `exec` builtin — on
-`main`; in releases after v0.82.0) and [`zig`](https://ziglang.org) for the
-wasm client. Then:
+Needs [machin](https://github.com/javimosch/machin) **v0.83.0+** (for the `exec`
+builtin) and [`zig`](https://ziglang.org) for the wasm client. Then:
 
 ```bash
 MACHIN=/path/to/machin ./build.sh
