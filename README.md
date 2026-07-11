@@ -82,10 +82,13 @@ Schedule it with plain cron — the tool is stateless, so a bare
 ## Build
 
 Needs [machin](https://github.com/javimosch/machin) **v0.83.0+** (for the `exec`
-builtin) and [`zig`](https://ziglang.org) for the wasm client. Then:
+builtin), [`zig`](https://ziglang.org) for the wasm client, and
+[machin-web-ui](https://github.com/javimosch/machin-web-ui) (the dashboard's
+stylesheet comes from its pure-MFL Tailwind engine; the UI components under
+`components/` are vendored source from its registry). Then:
 
 ```bash
-MACHIN=/path/to/machin ./build.sh
+MACHIN=/path/to/machin MACHIN_WEB_UI=/path/to/machin-web-ui ./build.sh
 ```
 
 The whole thing is ~600 lines of [MFL](https://github.com/javimosch/machin) across
