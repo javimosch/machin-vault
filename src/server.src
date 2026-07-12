@@ -14,36 +14,53 @@ func hsize(n) (s) {
     s = str(n / 1073741824) + " GB"
 }
 
+// ssr_target renders one target as a machin-web-ui card: header row (name +
+// kind badge + Backup button + status slot), then the versions table. The
+// hydration/host contract is unchanged: [data-opt] container, [data-backup]
+// button, data-s="status_i" slot.
 func ssr_target(cfg, t, idx) (h) {
     vs := versions(cfg, t)
-    h = "<div class=tgt data-opt=\"" + str(idx) + "\">"
-    h = h + "<div class=hd><b>" + t.name + "</b><span class=kind>" + t.kind + "</span><span class=grow></span>"
-    h = h + "<button class=bk data-backup=\"/api/backup?t=" + t.name + "\">Backup now</button>"
-    h = h + "<span class=st data-s=\"status_" + str(idx) + "\"></span></div>"
+    head := "<div class=\"mb-4 flex flex-wrap items-center gap-3\">"
+    head = head + "<span class=\"text-sm font-semibold tracking-tight\">" + ui_esc(t.name) + "</span>"
+    head = head + ui_badge(t.kind, "blue")
+    head = head + "<span class=\"flex-1\"></span>"
+    head = head + "<span class=\"text-xs text-amber-600 dark:text-amber-400\" data-s=\"status_" + str(idx) + "\"></span>"
+    head = head + "<button class=\"" + ui_button_classes("primary") + "\" data-backup=\"/api/backup?t=" + t.name + "\">Backup now</button>"
+    head = head + "</div>"
+    body := ""
     if len(vs) == 0 {
-        h = h + "<div class=empty>no backups yet</div></div>"
-        return h
+        body = ui_empty_state("no backups yet", "Run one from here or via the CLI: machin-vault backup " + t.name, "")
+    } else {
+        rows := []string{}
+        for _, v := range vs {
+            encs := "<span class=\"text-stone-400\">&mdash;</span>"
+            if v.enc == 1 { encs = ui_badge("aes-256", "green") }
+            cells := ui_td(time_format(v.unix, "%Y-%m-%d %H:%M")) + ui_td(age_str(now() - v.unix))
+            cells = cells + ui_td(hsize(file_size(v.file)))
+            cells = cells + ui_td("<span class=\"text-xs text-stone-400\">" + v.sha + "</span>") + ui_td(encs)
+            rows = append(rows, ui_tr(cells))
+        }
+        body = ui_table([]string{"when", "age", "size", "sha", "enc"}, rows)
     }
-    h = h + "<table><tr><th>when</th><th>age</th><th>size</th><th>sha</th><th>enc</th></tr>"
-    for _, v := range vs {
-        encs := ""
-        if v.enc == 1 { encs = "yes" }
-        h = h + "<tr><td>" + time_format(v.unix, "%Y-%m-%d %H:%M") + "</td><td>" + age_str(now() - v.unix) + "</td>"
-        h = h + "<td>" + hsize(file_size(v.file)) + "</td><td class=sha>" + v.sha + "</td><td class=enc>" + encs + "</td></tr>"
-    }
-    h = h + "</table></div>"
+    h = "<div data-opt=\"" + str(idx) + "\">" + ui_card("", head + body) + "</div>"
 }
 
 func page(cfg) (h) {
     h = "<!doctype html><html lang=en><head><meta charset=utf-8>"
     h = h + "<meta name=viewport content=\"width=device-width,initial-scale=1\">"
-    h = h + "<title>machin-vault</title>" + styles() + "</head><body>"
-    h = h + "<header><h1>machin-vault</h1><span class=sub>backup dashboard</span></header>"
-    h = h + "<main id=app>"
+    h = h + "<title>machin-vault</title><style>" + tw_css_text() + "</style></head>"
+    h = h + "<body class=\"" + ui_page_classes() + "\">"
+    h = h + "<main id=app class=\"" + ui_main_classes() + "\">"
+    h = h + "<header class=\"flex items-center justify-between\">"
+    h = h + "<div class=\"flex items-center gap-3\"><h1 class=\"text-xl font-semibold tracking-tight\">machin-vault</h1>" + ui_badge("backups", "neutral") + "</div>"
+    h = h + "<span class=\"text-sm text-stone-500 dark:text-stone-400\">" + str(len(cfg.targets)) + " targets</span>"
+    h = h + "</header>"
     i := 0
     for _, t := range cfg.targets { h = h + ssr_target(cfg, t, i)  i = i + 1 }
-    h = h + "</main>"
-    h = h + "<footer>" + str(len(cfg.targets)) + " targets &middot; <a href=/api/list>/api/list</a> &middot; one self-hosted binary, built with machin</footer>"
+    h = h + "<footer class=\"flex flex-wrap items-center justify-between gap-2 border-t border-stone-200 dark:border-stone-800 pt-4 text-xs text-stone-500 dark:text-stone-400\">"
+    h = h + "<span>one self-hosted binary, built with <a class=\"text-stone-900 dark:text-stone-100 underline-offset-4 hover:underline\" href=\"https://github.com/javimosch/machin\">machin</a> + machin-web-ui</span>"
+    h = h + "<a class=\"hover:text-stone-900 dark:hover:text-stone-100\" href=\"/api/list\">/api/list</a>"
+    h = h + "</footer>"
     h = h + "<script>window.__NTARGETS=" + str(len(cfg.targets)) + "</script>"
     h = h + "<script type=module>" + host_js() + "</script>"
     h = h + "</body></html>"

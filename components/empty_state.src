@@ -1,0 +1,10 @@
+// empty_state.src — centered placeholder for empty lists/searches: title,
+// quiet body, optional action markup (e.g. a ui_button; "" to omit).
+
+func ui_empty_state(title, body, action) (h) {
+    h = "<div class=\"flex flex-col items-center gap-2 rounded-lg border border-dashed border-stone-300 dark:border-stone-700 px-6 py-10 text-center\">"
+    h = h + "<p class=\"text-sm font-medium text-stone-900 dark:text-stone-100\">" + ui_esc(title) + "</p>"
+    h = h + "<p class=\"max-w-xs text-sm text-stone-500 dark:text-stone-400\">" + ui_esc(body) + "</p>"
+    if len(action) > 0 { h = h + "<div class=\"mt-2\">" + action + "</div>" }
+    h = h + "</div>"
+}

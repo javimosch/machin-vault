@@ -1,0 +1,15 @@
+// badge.src — pill status badge: tiny uppercase type on a pale pastel wash.
+// Kinds: "neutral", "red", "blue", "green", "yellow".
+
+func ui_badge_classes(kind) (c) {
+    c = "inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium uppercase tracking-wider"
+    if kind == "neutral" { c = c + " bg-stone-100 dark:bg-stone-800 text-stone-600 dark:text-stone-400" }
+    if kind == "red" { c = c + " bg-red-50 text-red-800 dark:bg-red-950 dark:text-red-300" }
+    if kind == "blue" { c = c + " bg-sky-50 text-sky-800 dark:bg-sky-950 dark:text-sky-300" }
+    if kind == "green" { c = c + " bg-green-50 text-green-800 dark:bg-green-950 dark:text-green-300" }
+    if kind == "yellow" { c = c + " bg-amber-50 text-amber-800 dark:bg-amber-950 dark:text-amber-300" }
+}
+
+func ui_badge(label, kind) (h) {
+    h = "<span class=\"" + ui_badge_classes(kind) + "\">" + ui_esc(label) + "</span>"
+}

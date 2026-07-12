@@ -3,6 +3,7 @@ machin-vault
 app.wasm
 *.mfl
 src/host_gen.src
+web/tw.css
 
 # real configs hold credentials — keep them out of git (ship vault.json.example)
 vault.json
