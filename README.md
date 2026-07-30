@@ -70,7 +70,12 @@ The binary serves its own `/app.wasm` and a JSON API (`/api/list`, `/api/backup?
 ## Quickstart
 
 ```bash
+# Linux x86_64, statically linked — no runtime dependencies, no glibc floor:
+curl -fsSL https://github.com/javimosch/machin-vault/releases/latest/download/machin-vault-linux-x86_64 -o machin-vault
+chmod +x machin-vault
+
 cp vault.json.example vault.json   # edit your targets
+# ...or build it yourself (needs machin):
 ./build.sh                         # builds app.wasm + the machin-vault binary
 ./machin-vault -c vault.json backup        # back up everything now
 ./machin-vault -c vault.json list          # see what you have

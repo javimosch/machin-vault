@@ -18,11 +18,15 @@ func age_str(secs) (s) {
     s = str(secs / 86400) + "d"
 }
 
-func file_size(path) (n) {
-    code, o, _ := exec("stat -c%s " + path)
-    n = 0
-    if code == 0 { n = parse_int(trim(o)) }
-}
+// file_size was a local function that shelled out to `stat -c%s`. machin has a
+// builtin of the same name now, and a local one silently shadows it — the build
+// refuses outright, which is how this surfaced.
+//
+// The builtin is also the correct implementation for a binary meant to run in a
+// slim or `FROM scratch` container, where there IS no `stat` to exec: the old
+// version would have returned 0 for every file, and reported it as a size.
+// The builtin returns -1 when a path cannot be stat'd, so callers that treated
+// 0 as "unknown" now get a value they can distinguish.
 
 // a parsed stored version
 type Ver struct { file string  unix int  sha string  ext string  enc int }
