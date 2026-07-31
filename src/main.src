@@ -6,6 +6,7 @@
 func print_help_json() {
     println("{\"version\":\"1\",\"ok\":true,\"tool\":\"machin-vault\"," +
         "\"summary\":\"agent-first backup vault for files + databases; list/get/unpack/restore\"," +
+        "\"telemetry\":{\"what\":\"one anonymous event per invocation: version, os/arch, verb, exit class. NEVER your backup contents, target names, paths or credentials\",\"off\":\"MACHIN_VAULT_TELEMETRY=0, DO_NOT_TRACK=1, `machin-vault telemetry --telemetry-off`, or CI (default off)\",\"inspect\":\"machin-vault telemetry prints the literal payload\",\"spec\":\"https://github.com/javimosch/cli-telemetry-spec\"}," +
         "\"commands\":[" +
         "{\"name\":\"backup\",\"args\":\"[target]\",\"desc\":\"run a backup now (all targets, or one)\"}," +
         "{\"name\":\"list\",\"args\":\"[target]\",\"desc\":\"targets and versions: name, age, size, sha, encrypted\"}," +
@@ -25,10 +26,22 @@ func arg_at(rest, i) (s) {
 }
 
 func main() {
+    vault_dispatch()
+    // After the verb finished and its result is on stdout. `serve` reports once
+    // at startup instead, since it never returns here.
+    a := args()
+    verb := "none"
+    if len(a) > 1 { verb = a[1] }
+    if verb != "serve" { tel_report(verb, 0) }
+}
+
+func vault_dispatch() {
     fs := new_flags("machin-vault")
     fs = flag_str(fs, "config", "c", "vault.json", "config file path")
     fs = flag_str(fs, "to", "", "", "output directory (get/unpack)")
     fs = flag_bool(fs, "yes", "y", "confirm destructive operations (restore)")
+    fs = flag_bool(fs, "telemetry-off", "", "telemetry: disable usage counts permanently")
+    fs = flag_bool(fs, "telemetry-on", "", "telemetry: re-enable usage counts")
     fs = flag_int(fs, "port", "p", "8080", "serve port")
     fs = parse_flags(fs, args())
     rest := flag_args(fs)
@@ -37,6 +50,17 @@ func main() {
     if cmd == "" { print_help_json()  return }
     if cmd == "help" { print_help_json()  return }
     if cmd == "help-json" { print_help_json()  return }
+    if cmd == "telemetry" {
+        if flag_on(fs, "telemetry-off") {
+            td, tok := tel_set(0)
+            println(td)
+            if tok == 0 { exit(90) }
+            return
+        }
+        if flag_on(fs, "telemetry-on") { td, tok := tel_set(1)  println(td)  return }
+        println(tel_status_json())
+        return
+    }
 
     cfg := load_config(flag_get(fs, "config"))
 
@@ -58,6 +82,6 @@ func main() {
         op_restore(cfg, arg_at(rest, 1), arg_at(rest, 2), y)
         return
     }
-    if cmd == "serve" { serve_app(cfg, flag_get(fs, "config"), flag_int_val(fs, "port"))  return }
+    if cmd == "serve" { tel_report("serve", 0)  serve_app(cfg, flag_get(fs, "config"), flag_int_val(fs, "port"))  return }
     die(80, "unknown command: " + cmd + " (try help-json)")
 }

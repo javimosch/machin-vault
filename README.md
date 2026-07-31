@@ -70,6 +70,10 @@ The binary serves its own `/app.wasm` and a JSON API (`/api/list`, `/api/backup?
 ## Quickstart
 
 ```bash
+# `machin-vault telemetry` shows exactly what it reports about itself; disable
+# with MACHIN_VAULT_TELEMETRY=0 or DO_NOT_TRACK=1. It never sends backup
+# contents, target names, paths or credentials.
+
 # Linux x86_64, statically linked — no runtime dependencies, no glibc floor:
 curl -fsSL https://github.com/javimosch/machin-vault/releases/latest/download/machin-vault-linux-x86_64 -o machin-vault
 chmod +x machin-vault

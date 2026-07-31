@@ -27,7 +27,7 @@ PY
 
 # 4. native BINARY: CLI (flags/vault/ops) + server (machweb + machin-web-ui components) + UI host.
 "$MACHIN" encode \
-    src/flags.src src/vault.src src/ops.src \
+    src/flags.src src/vault.src src/ops.src src/telemetry.src \
     src/machweb.src components/*.src src/models.src src/server.src src/host_gen.src \
     src/main.src > vault.mfl
 "$MACHIN" build vault.mfl -o machin-vault
