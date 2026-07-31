@@ -1,4 +1,8 @@
 #!/usr/bin/env bash
+
+# The build runs the binary to verify it (version/help/guide). That is not
+# usage: a build is automation. cli-telemetry-spec §2.2.1.
+export DO_NOT_TRACK=1
 # Build machin-vault: one wasm client (the reactive dashboard) + one native binary
 # that is BOTH the agent-first CLI and the server that serves the wasm. Needs machin
 # v0.82.0+ and zig (the C->wasm compiler). Frameworks are vendored under src/.
