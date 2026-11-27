@@ -98,7 +98,7 @@ footer{border-top:1px solid var(--line);padding:24px 0 40px;color:var(--mut);fon
   </div>
 </header>
 
-<div class="warn"><strong>Experimental, unaudited.</strong> A dogfooding project for the machin language that runs real backups for its author. Per-target age encryption and secrets are on <code>main</code> (v0.3.0); the latest binary release is v0.2.0, so build from source for them. <a href="#limits">All limits</a>.</div>
+<div class="warn"><strong>Experimental, unaudited.</strong> A dogfooding project for the machin language that runs real backups for its author. Current release: v0.3.0, with per-target age encryption and secrets. <a href="#limits">All limits</a>.</div>
 
 <div class="term" id="recover">
   <div class="bar"><i></i><i></i><i></i></div>
@@ -168,7 +168,7 @@ cp vault.json.example vault.json          # edit your targets
   <h2>Limits — read before trusting it</h2>
   <ul class="lim">
     <li><strong>Experimental and unaudited.</strong> It is a dogfooding tool for <a href="https://github.com/javimosch/machin">machin</a>; test your restores.</li>
-    <li>The prebuilt binary is <strong>Linux x86_64 only</strong>. Latest release is v0.2.0; age encryption and secrets need a build from <code>main</code> (needs machin v0.83.0+ and zig).</li>
+    <li>The prebuilt binary is <strong>Linux x86_64 only</strong>; other platforms need a build from source (machin v0.83.0+ and zig). Encryption needs <code>age</code> on PATH.</li>
     <li>The legacy global <code>encrypt_password</code> uses <code>openssl aes-256-cbc</code>, which is <strong>unauthenticated</strong>. Use per-target <code>age</code> instead.</li>
     <li>age encryption is not supported for <code>kind: file</code> (rsync can't stream) — wrap it in a custom <code>tar</code> command.</li>
     <li>Secrets stay out of local argv, but a remote tool may still show a password in the <em>remote</em> host's <code>ps</code>. Prefer a dump-only command on the DB host.</li>

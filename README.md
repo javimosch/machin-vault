@@ -2,8 +2,7 @@
 
 # machin-vault
 
-**Site:** https://javimosch.github.io/machin-vault/ · **Status:** experimental, unaudited;
-age encryption and secrets are on `main` (v0.3.0), the latest binary release is v0.2.0.
+**Site:** https://javimosch.github.io/machin-vault/ · **Status:** experimental, unaudited.
 
 A single self-hostable binary that backs up your files and databases — and, when
 something is lost, lets an **agent recover it in one glance**. CLI-first and
