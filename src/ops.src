@@ -44,8 +44,9 @@ func versions(cfg, t) (out) {
         if us < 0 { continue }
         unixs := substr(rest, 0, us)
         tail := substr(rest, us + 1, len(rest))  // <sha8>.<ext>[.enc]
-        enc := 0
+        enc := 0   // 0 plain · 1 legacy openssl (.enc) · 2 age (.age)
         if has_suffix(tail, ".enc") { enc = 1  tail = substr(tail, 0, len(tail) - 4) }
+        if has_suffix(tail, ".age") { enc = 2  tail = substr(tail, 0, len(tail) - 4) }
         dot := index(tail, ".")
         sha := tail
         ext := ""
@@ -68,7 +69,7 @@ func versions(cfg, t) (out) {
 func ver_json(v) (s) {
     s = "{\"v\":\"" + time_format(v.unix, "%Y-%m-%dT%H:%M:%SZ") + "\",\"unix\":" + str(v.unix) +
         ",\"age\":\"" + age_str(now() - v.unix) + "\",\"size\":" + str(file_size(v.file)) +
-        ",\"sha\":\"" + v.sha + "\",\"encrypted\":" + str(v.enc == 1) + ",\"file\":" + json(v.file) + "}"
+        ",\"sha\":\"" + v.sha + "\",\"encrypted\":" + str(v.enc > 0) + ",\"cipher\":\"" + cipher_of(v) + "\",\"file\":" + json(v.file) + "}"
 }
 
 // pick resolves a version: "" / "latest" -> newest, else match by unix-prefix or sha.
@@ -86,7 +87,97 @@ func pick(vs, version) (v) {
 // ---- commands (the *_body funcs do the work and RETURN a JSON body fragment, so
 // the CLI (emit) and the HTTP API (ok_json) share one implementation) ----
 
+func cipher_of(v) (c) {
+    c = ""
+    if v.enc == 1 { c = "openssl-aes-256-cbc" }
+    if v.enc == 2 { c = "age" }
+}
+
+// ---- per-target age encryption ----
+// A target with "encrypt":"age" is NEVER written in plaintext: the dump streams
+// through tee (sha256 for unchanged-detection) straight into age, inside a 0700 dir
+// on the store's filesystem. Any failure — dump, tee, age, empty output, missing
+// age binary, bad recipients — removes everything and exits non-zero. No fallback.
+
+// shq single-quotes a string for sh.
+func shq(x) (q) { q = "'" + replace(x, "'", "'\\''") + "'" }
+
+// run_script writes a bash script (commands only, never secrets or plaintext data)
+// and runs it with pipefail. Returns code + stderr.
+func run_script(path, body) (code, err) {
+    write_file(path, "set -o pipefail\numask 077\n" + body + "\n")
+    c, _, e := exec("bash " + path)
+    code = c
+    err = e
+}
+
+// age_check validates an encrypted target BEFORE anything is dumped. Returns the
+// " -r R1 -r R2" recipient args.
+func age_check(t) (rargs) {
+    rargs = ""
+    if t.encrypt != "age" { die(80, "target " + t.name + ": unsupported encrypt \"" + t.encrypt + "\" (only \"age\")") }
+    if t.kind == "file" { die(80, "target " + t.name + ": encrypt is not supported for kind=file (rsync cannot stream); wrap it in a custom tar command") }
+    if len(t.age_recipients) == 0 { die(80, "target " + t.name + ": encrypt=age needs age_recipients") }
+    for _, r := range t.age_recipients {
+        if has_prefix(r, "age1") == false { die(80, "target " + t.name + ": age recipient must start with age1") }
+        if index(r, " ") >= 0 { die(80, "target " + t.name + ": malformed age recipient") }
+        if index(r, "'") >= 0 { die(80, "target " + t.name + ": malformed age recipient") }
+        rargs = rargs + " -r " + shq(r)
+    }
+    code, _, _ := exec("command -v age")
+    if code != 0 { die(90, "target " + t.name + ": encrypt=age but the age binary is not installed") }
+}
+
+// age_identity resolves the identity file for decryption: --identity, else the
+// MACHIN_VAULT_AGE_IDENTITY env var (a PATH, e.g. from `sealed exec --file`).
+func age_identity(flagval) (id) {
+    id = flagval
+    if id == "" { id = env("MACHIN_VAULT_AGE_IDENTITY") }
+    if id == "" { die(80, "artifact is age-encrypted: pass --identity <file> or set MACHIN_VAULT_AGE_IDENTITY") }
+    if file_size(id) < 0 { die(90, "age identity not readable: " + id) }
+}
+
+// backup_age_body: the encrypted twin of backup_body.
+func backup_age_body(cfg, t) (body) {
+    rargs := age_check(t)
+    dir := cfg.store + "/" + t.name
+    sh("mkdir -p " + shq(dir))
+    work := dir + "/.tmp-" + to_hex(rand_bytes(8))
+    sh("mkdir -m 700 " + shq(work))
+    fifo := work + "/f"
+    shaf := work + "/sha"
+    out := work + "/out.age"
+    script := "mkfifo " + shq(fifo) + "\n" +
+        "sha256sum < " + shq(fifo) + " > " + shq(shaf) + " &\nh=$!\n" +
+        "{ " + backup_cmd(t, "/dev/stdout") + " ; } | tee " + shq(fifo) + " | age" + rargs + " -o " + shq(out) + "\n" +
+        "rc=$?\nwait $h || rc=1\nexit $rc"
+    code, err := run_script(work + "/run.sh", script)
+    if code != 0 { system("rm -rf " + shq(work))  die(100, "encrypted backup failed (" + str(code) + "): " + trim(err)) }
+    full := trim(read_file(shaf))
+    if len(full) < 64 { system("rm -rf " + shq(work))  die(100, "encrypted backup failed: no checksum") }
+    if has_prefix(full, "e3b0c44298fc1c149afbf4c8996fb924") { system("rm -rf " + shq(work))  die(100, "encrypted backup failed: dump produced no output") }
+    if file_size(out) <= 0 { system("rm -rf " + shq(work))  die(100, "encrypted backup failed: empty ciphertext") }
+    sha := substr(full, 0, 12)
+    vs := versions(cfg, t)
+    if len(vs) > 0 { if vs[0].sha == sha { system("rm -rf " + shq(work))  body = "\"target\":\"" + t.name + "\",\"skipped\":true,\"reason\":\"unchanged\",\"sha\":\"" + sha + "\""  return body } }
+    final := dir + "/" + t.name + "_" + str(now()) + "_" + sha + "." + ext_of(t) + ".age"
+    sh("mv " + shq(out) + " " + shq(final))
+    system("rm -rf " + shq(work))
+    prune(cfg, t)
+    body = "\"target\":\"" + t.name + "\",\"version\":" + str(now()) + ",\"sha\":\"" + sha + "\",\"file\":" + json(final) + ",\"size\":" + str(file_size(final)) + ",\"encrypted\":true,\"cipher\":\"age\""
+}
+
+// prune: retention — keep the newest N versions (any cipher).
+func prune(cfg, t) {
+    ret := t.retention
+    if ret <= 0 { ret = 7 }
+    vs2 := versions(cfg, t)
+    i := ret
+    for i < len(vs2) { system("rm -f " + vs2[i].file)  i = i + 1 }
+}
+
 func backup_body(cfg, t) (body) {
+    if t.encrypt != "" { body = backup_age_body(cfg, t)  return body }
     dir := cfg.store + "/" + t.name
     sh("mkdir -p " + dir)
     tmp := "/tmp/mv-" + to_hex(rand_bytes(8))
@@ -105,12 +196,7 @@ func backup_body(cfg, t) (body) {
     } else {
         sh("mv " + tmp + " " + final)
     }
-    // retention: keep newest N
-    ret := t.retention
-    if ret <= 0 { ret = 7 }
-    vs2 := versions(cfg, t)
-    i := ret
-    for i < len(vs2) { system("rm -f " + vs2[i].file)  i = i + 1 }
+    prune(cfg, t)
     body = "\"target\":\"" + t.name + "\",\"version\":" + str(now()) + ",\"sha\":\"" + sha + "\",\"file\":" + json(final) + ",\"size\":" + str(file_size(final)) + ",\"encrypted\":" + str(cfg.encrypt_password != "")
 }
 
@@ -141,17 +227,24 @@ func op_get(cfg, name, version, to) {
     sh("mkdir -p " + to)
     base := to + "/" + basename(v.file)
     sh("cp " + v.file + " " + base)
-    emit("\"target\":\"" + name + "\",\"path\":" + json(base) + ",\"sha\":\"" + v.sha + "\",\"encrypted\":" + str(v.enc == 1))
+    emit("\"target\":\"" + name + "\",\"path\":" + json(base) + ",\"sha\":\"" + v.sha + "\",\"encrypted\":" + str(v.enc > 0) + ",\"cipher\":\"" + cipher_of(v) + "\"")
 }
 
 // op_unpack decrypts (if needed) + decompresses (.gz) the artifact into a dir.
-func op_unpack(cfg, name, version, to) {
+func op_unpack(cfg, name, version, to, identity) {
     if to == "" { die(80, "unpack requires --to <dir>") }
     t := find_target(cfg, name)
     v := pick(versions(cfg, t), version)
     sh("mkdir -p " + to)
     src := v.file
-    if v.enc == 1 {
+    if v.enc == 2 {
+        id := age_identity(identity)
+        sh("chmod 700 " + shq(to))
+        dec := to + "/" + basename(substr(src, 0, len(src) - 4))
+        code, _, err := exec("umask 077; age -d -i " + shq(id) + " -o " + shq(dec) + " " + shq(src))
+        if code != 0 { system("rm -f " + shq(dec))  die(100, "age decrypt failed: " + trim(err)) }
+        src = dec
+    } else if v.enc == 1 {
         if cfg.encrypt_password == "" { die(80, "artifact is encrypted but no encrypt_password in config") }
         dec := to + "/" + basename(substr(src, 0, len(src) - 4))
         sh("openssl enc -d -aes-256-cbc -pbkdf2 -in " + src + " -out " + dec + " -pass pass:" + cfg.encrypt_password)
@@ -168,10 +261,21 @@ func op_unpack(cfg, name, version, to) {
     emit("\"target\":\"" + name + "\",\"path\":" + json(out) + ",\"note\":\"decrypted+decompressed; db archives may need their native restore\"")
 }
 
-func op_restore(cfg, name, version, yes) {
+func op_restore(cfg, name, version, yes, identity) {
     if yes == 0 { die(80, "restore is destructive — pass --yes to confirm") }
     t := find_target(cfg, name)
     v := pick(versions(cfg, t), version)
+    if v.enc == 2 {
+        id := age_identity(identity)
+        work := "/tmp/mv-restore-" + to_hex(rand_bytes(6))
+        sh("mkdir -m 700 " + work)
+        // decrypt streams into the restore command — no plaintext on disk.
+        code, err := run_script(work + "/run.sh", "age -d -i " + shq(id) + " " + shq(v.file) + " | { " + restore_cmd(t, "/dev/stdin") + " ; }")
+        system("rm -rf " + work)
+        if code != 0 { die(100, "restore failed: " + trim(err)) }
+        emit("\"target\":\"" + name + "\",\"restored_version\":" + str(v.unix) + ",\"sha\":\"" + v.sha + "\",\"cipher\":\"age\"")
+        return
+    }
     in := v.file
     if v.enc == 1 {
         if cfg.encrypt_password == "" { die(80, "artifact is encrypted but no encrypt_password in config") }

@@ -4,7 +4,7 @@
 // `exec` builtin — machin orchestrates; it never reimplements them.
 //
 // Storage is stateless: artifacts live at <store>/<target>/<name>_<ts>_<sha8>.<ext>
-// (+ ".enc" when encrypted), so `list` just scans the filesystem — no index to corrupt.
+// (+ ".enc" for legacy openssl, ".age" for per-target age), so `list` just scans the filesystem — no index to corrupt.
 
 type Target struct {
     name string
@@ -19,6 +19,10 @@ type Target struct {
     restore string     // custom: a shell command that reads the artifact from stdin
     ext string         // artifact extension (default per kind)
     retention int      // keep N most recent unique versions (default 7)
+    encrypt string     // optional, per target: "age" = encrypt this target's artifacts
+                       // with age (X25519 + ChaCha20-Poly1305). Overrides encrypt_password.
+    age_recipients []string  // encrypt="age": public recipients ("age1..."). Only PUBLIC
+                       // keys live here; the identity is passed at unpack/restore time.
 }
 
 type Config struct {

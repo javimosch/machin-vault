@@ -53,8 +53,9 @@ machin-vault **orchestrates the real tools** — it never reimplements them. Add
 `"container": "pg"` to a target to run the dump inside `docker exec`.
 
 Built-in: **content-addressed dedup** (an unchanged backup is skipped), **retention**
-(keep the newest N per target), and optional **at-rest encryption** (`openssl
-aes-256-cbc`, set `encrypt_password`).
+(keep the newest N per target), and optional **at-rest encryption**: per target
+with `age` (recommended, see below) or the legacy global `encrypt_password`
+(`openssl aes-256-cbc`, unauthenticated).
 
 ## The dashboard (same binary)
 
@@ -113,3 +114,26 @@ See [`vault.json.example`](./vault.json.example). Per target: `name`, `kind`,
 artifacts live) and `encrypt_password` (empty = no encryption).
 
 > Your real `vault.json` holds credentials — it's gitignored. Commit only the example.
+
+## Per-target encryption (age)
+
+Opt in per target; other targets are untouched:
+
+```json
+{ "name": "secrets-db", "kind": "custom", "command": "...", "ext": "tar.gz",
+  "encrypt": "age", "age_recipients": ["age1primary...", "age1breakglass..."] }
+```
+
+- Artifacts end in `.age` (X25519 + ChaCha20-Poly1305, authenticated, truncation-detecting).
+- **Never written in plaintext**: the dump streams through `sha256sum` (unchanged-detection)
+  straight into `age`, in a 0700 dir on the store's filesystem, then is renamed in place.
+  Any failure (dump, age, empty output, bad recipient, `age` not installed) leaves nothing
+  behind and exits non-zero — there is no plaintext fallback.
+- Only **public** recipients go in the config. Decryption needs the identity at the time of
+  the command: `unpack/restore --identity <file>` or `MACHIN_VAULT_AGE_IDENTITY=<file>`.
+  `restore` streams `age -d` into the restore command (no plaintext on disk); `unpack`
+  writes into a 0700 `--to` dir.
+- Not supported for `kind: file` (rsync can't stream) — wrap it in a custom `tar` command.
+- Overrides `encrypt_password` for that target. `list`/`get` report `"cipher":"age"`.
+- Mirrors that filter by extension must include `*.age`.
+- Tests: `tests/encrypt_test.sh` (round-trip cases need `age` on PATH).

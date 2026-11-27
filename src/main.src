@@ -15,8 +15,8 @@ func print_help_json() {
         "{\"name\":\"restore\",\"args\":\"<target> [version] --yes\",\"desc\":\"restore via the kind's inverse command (destructive)\"}," +
         "{\"name\":\"serve\",\"args\":\"--port N\",\"desc\":\"daemon: run the scheduler and serve the web UI\"}" +
         "]," +
-        "\"flags\":[\"--config/-c <path> (default vault.json)\",\"--to <dir>\",\"--yes/-y\",\"--port/-p\"]," +
-        "\"version_selector\":\"a version is the unix timestamp or the sha shown by list; omit for latest\"," +
+        "\"flags\":[\"--config/-c <path> (default vault.json)\",\"--to <dir>\",\"--yes/-y\",\"--identity/-i <age identity file> (unpack/restore of encrypt=age targets; or env MACHIN_VAULT_AGE_IDENTITY)\",\"--port/-p\"]," +
+        "\"encryption\":\"opt-in per target: \\\"encrypt\\\":\\\"age\\\",\\\"age_recipients\\\":[\\\"age1...\\\"]; artifacts end in .age and are never written in plaintext; only public keys in config\",\"version_selector\":\"a version is the unix timestamp or the sha shown by list; omit for latest\"," +
         "\"exit_codes\":\"0 ok | 80-89 input | 90-99 resource(not found) | 100-109 integration(ssh/dump/restore) | 110-119 internal\"}")
 }
 
@@ -39,6 +39,7 @@ func vault_dispatch() {
     fs := new_flags("machin-vault")
     fs = flag_str(fs, "config", "c", "vault.json", "config file path")
     fs = flag_str(fs, "to", "", "", "output directory (get/unpack)")
+    fs = flag_str(fs, "identity", "i", "", "age identity file for encrypted targets (or MACHIN_VAULT_AGE_IDENTITY)")
     fs = flag_bool(fs, "yes", "y", "confirm destructive operations (restore)")
     fs = flag_bool(fs, "telemetry-off", "", "telemetry: disable usage counts permanently")
     fs = flag_bool(fs, "telemetry-on", "", "telemetry: re-enable usage counts")
@@ -75,11 +76,11 @@ func vault_dispatch() {
     }
     if cmd == "list" { op_list(cfg, arg_at(rest, 1))  return }
     if cmd == "get" { op_get(cfg, arg_at(rest, 1), arg_at(rest, 2), flag_get(fs, "to"))  return }
-    if cmd == "unpack" { op_unpack(cfg, arg_at(rest, 1), arg_at(rest, 2), flag_get(fs, "to"))  return }
+    if cmd == "unpack" { op_unpack(cfg, arg_at(rest, 1), arg_at(rest, 2), flag_get(fs, "to"), flag_get(fs, "identity"))  return }
     if cmd == "restore" {
         y := 0
         if flag_on(fs, "yes") { y = 1 }
-        op_restore(cfg, arg_at(rest, 1), arg_at(rest, 2), y)
+        op_restore(cfg, arg_at(rest, 1), arg_at(rest, 2), y, flag_get(fs, "identity"))
         return
     }
     if cmd == "serve" { tel_report("serve", 0)  serve_app(cfg, flag_get(fs, "config"), flag_int_val(fs, "port"))  return }
