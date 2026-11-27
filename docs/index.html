@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>machin-vault — backups an agent can read</title>
+<meta name="description" content="One self-hostable binary that backs up files and databases into legible, versioned artifacts — with a JSON CLI an agent can drive, per-target age encryption and secrets kept out of the config. Experimental, unaudited.">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta property="og:type" content="website">
+<meta property="og:title" content="machin-vault — backups an agent can read">
+<meta property="og:description" content="List, verify and restore backups in one glance. One binary, JSON CLI, per-target age encryption. Experimental, unaudited.">
+<meta property="og:url" content="https://javimosch.github.io/machin-vault/">
+<meta property="og:image" content="https://javimosch.github.io/machin-vault/og.png">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="https://javimosch.github.io/machin-vault/og.png">
+<style>
+:root{--bg:#f7f2e8;--fg:#1d1a15;--mut:#5e5647;--card:#fffdf8;--line:#e2d6bf;--acc:#8a5a12;--acchi:#6e470c;--onacc:#fff8ec;--term:#1b1710;--termfg:#efe6d4;--termmut:#a8997c;--hi:#f2c46d;--warnbg:#fbeed3;--warnfg:#5a3d08}
+@media (prefers-color-scheme:dark){:root{--bg:#12100c;--fg:#ece5d8;--mut:#a69c8a;--card:#1b1812;--line:#2e2920;--acc:#f2c46d;--acchi:#ffd98f;--onacc:#2a1c04;--term:#0b0a07;--termfg:#efe6d4;--termmut:#8f846e;--hi:#f2c46d;--warnbg:#2a2113;--warnfg:#f2d9a6}}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.6 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+a{color:var(--acc)}
+code,pre{font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace}
+.wrap{max-width:980px;margin:0 auto;padding:0 20px}
+nav{display:flex;align-items:center;justify-content:space-between;padding:18px 0;gap:12px}
+nav .brand{display:flex;align-items:center;gap:10px;font-weight:700;text-decoration:none;color:var(--fg);font-family:ui-monospace,Menlo,monospace}
+nav .links{display:flex;gap:18px;flex-wrap:wrap}
+nav .links a{color:var(--mut);text-decoration:none;font-size:15px}
+nav .links a:hover{color:var(--fg)}
+.hero{display:grid;grid-template-columns:auto 1fr;gap:40px;align-items:center;padding:48px 0 32px}
+.hero h1{font:800 clamp(34px,6vw,56px)/1.05 ui-monospace,Menlo,monospace;letter-spacing:-1px;margin:0 0 14px}
+.hero p.lead{font-size:clamp(18px,2.4vw,22px);color:var(--mut);margin:0 0 24px;max-width:560px}
+.btns{display:flex;gap:12px;flex-wrap:wrap}
+.btn{display:inline-block;padding:11px 18px;border-radius:10px;text-decoration:none;font-weight:600;border:1px solid var(--line);color:var(--fg);background:var(--card)}
+.btn.p{background:var(--acc);color:var(--onacc);border-color:var(--acc)}
+.btn.p:hover{background:var(--acchi)}
+.warn{background:var(--warnbg);color:var(--warnfg);border-radius:12px;padding:14px 18px;margin:8px 0 36px;font-size:15px}
+.warn strong{font-weight:700}
+.term{background:var(--term);color:var(--termfg);border-radius:14px;overflow:hidden;margin:0 0 48px;box-shadow:0 10px 30px rgba(0,0,0,.12)}
+.term .bar{display:flex;gap:7px;padding:12px 14px;border-bottom:1px solid rgba(255,255,255,.07)}
+.term .bar i{width:11px;height:11px;border-radius:50%;background:#3a3326;display:block}
+.term pre{margin:0;padding:18px 20px;overflow-x:auto;font-size:14px;line-height:1.65}
+.term .c{color:var(--termmut)}
+.term .k{color:var(--hi)}
+h2{font-size:26px;margin:0 0 6px;letter-spacing:-.3px}
+.sub{color:var(--mut);margin:0 0 22px}
+section{padding:12px 0 40px}
+.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:18px 18px 16px}
+.card h3{margin:0 0 6px;font-size:17px}
+.card p{margin:0;color:var(--mut);font-size:15px}
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin:0 0 48px}
+.stat{border-left:3px solid var(--acc);padding:2px 0 2px 14px}
+.stat b{display:block;font:700 22px ui-monospace,Menlo,monospace}
+.stat span{color:var(--mut);font-size:14px}
+table{width:100%;border-collapse:collapse;font-size:15px;background:var(--card);border:1px solid var(--line);border-radius:12px;overflow:hidden}
+th,td{text-align:left;padding:10px 14px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-size:13px;text-transform:uppercase;letter-spacing:.05em;color:var(--mut)}
+tr:last-child td{border-bottom:0}
+td code{font-size:13.5px}
+.tblwrap{overflow-x:auto}
+pre.code{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px 18px;overflow-x:auto;font-size:14px}
+ul.lim{padding-left:20px;margin:0}
+ul.lim li{margin:0 0 8px}
+footer{border-top:1px solid var(--line);padding:24px 0 40px;color:var(--mut);font-size:14px}
+@media (max-width:760px){
+  .hero{grid-template-columns:1fr;gap:20px;padding-top:24px}
+  .hero img{width:96px;height:96px}
+  .grid{grid-template-columns:1fr}
+  .stats{grid-template-columns:repeat(2,1fr)}
+  nav .links a.opt{display:none}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+<nav>
+  <a class="brand" href="./"><img src="icon.svg" width="30" height="30" alt="">machin-vault</a>
+  <div class="links">
+    <a class="opt" href="#recover">Recover</a>
+    <a class="opt" href="#encryption">Encryption</a>
+    <a href="#limits">Limits</a>
+    <a href="https://github.com/javimosch/machin-vault">GitHub</a>
+  </div>
+</nav>
+
+<header class="hero">
+  <img src="icon.svg" width="168" height="168" alt="machin-vault icon: a stack of backup versions with a restore arrow">
+  <div>
+    <h1>machin-vault</h1>
+    <p class="lead">One self-hostable binary that backs up files and databases — and, when something is lost, lets an agent recover it in one glance.</p>
+    <div class="btns">
+      <a class="btn p" href="https://github.com/javimosch/machin-vault#quickstart">Quickstart</a>
+      <a class="btn" href="https://github.com/javimosch/machin-vault">Source (MIT)</a>
+      <a class="btn" href="https://github.com/javimosch/machin-vault/releases">Releases</a>
+    </div>
+  </div>
+</header>
+
+<div class="warn"><strong>Experimental, unaudited.</strong> A dogfooding project for the machin language that runs real backups for its author. Per-target age encryption and secrets are on <code>main</code> (v0.3.0); the latest binary release is v0.2.0, so build from source for them. <a href="#limits">All limits</a>.</div>
+
+<div class="term" id="recover">
+  <div class="bar"><i></i><i></i><i></i></div>
+<pre><span class="c"># "My database is gone — can you get it back?"</span>
+<span class="k">$</span> machin-vault list orders-db                 <span class="c"># 1. glance: newest is 6h old, sha 58c9d2d7</span>
+<span class="k">$</span> machin-vault get orders-db --to /tmp/rec     <span class="c"># 2. drop the raw artifact somewhere safe</span>
+<span class="k">$</span> machin-vault unpack orders-db --to /tmp/rec  <span class="c"># 3. or decrypt + decompress it to inspect</span>
+<span class="k">$</span> machin-vault restore orders-db --yes         <span class="c"># 4. restore via the db's native tool</span>
+
+{"version":"1","ok":true,"targets":[{"name":"orders-db","kind":"postgres","count":14,
+  "versions":[{"v":"2026-06-29T03:00:01Z","age":"6h","sha":"58c9d2d71b6c","encrypted":true,...}]}]}</pre>
+</div>
+
+<div class="stats">
+  <div class="stat"><b>1 binary</b><span>CLI, scheduler, dashboard</span></div>
+  <div class="stat"><b>0 deps</b><span>static Linux x86_64 build</span></div>
+  <div class="stat"><b>5 kinds</b><span>file, postgres, mysql, mongo, custom</span></div>
+  <div class="stat"><b>~2k lines</b><span>of MFL in <code>src/</code></span></div>
+</div>
+
+<section>
+  <h2>Built to be read — by you and by an agent</h2>
+  <p class="sub">No daemon is needed to read a backup: it is just files named <code>&lt;target&gt;_&lt;unixtime&gt;_&lt;sha&gt;.&lt;ext&gt;</code>.</p>
+  <div class="grid">
+    <div class="card"><h3>Agent-first contract</h3><p>One JSON object per answer, <code>help-json</code> catalog, semantic exit codes (80 input · 90 not found · 100 integration · 110 internal). <code>restore</code> refuses to run without <code>--yes</code>.</p></div>
+    <div class="card"><h3>Real tools, orchestrated</h3><p><code>pg_dump</code>, <code>mysqldump</code>, <code>mongodump</code>, <code>rsync</code> or any shell command — over ssh or inside <code>docker exec</code>. It never reimplements them.</p></div>
+    <div class="card"><h3>Dedup + retention</h3><p>Content-addressed: an unchanged backup is skipped. Keep the newest N versions per target.</p></div>
+    <div class="card" id="encryption"><h3>Per-target age encryption</h3><p>Opt in per target. The dump streams through <code>sha256sum</code> straight into <code>age</code>: never written in plaintext, no plaintext fallback, only public keys in the config.</p></div>
+    <div class="card"><h3>Secrets out of the config</h3><p>Passwords come from a 0600 file or the environment into the command's env — not in <code>vault.json</code>, not in <code>ps</code>, redacted from errors.</p></div>
+    <div class="card"><h3>Dashboard in the same binary</h3><p><code>serve</code> renders HTML that works with zero JavaScript, enhanced by a wasm client: "Backup now" per target, plus <code>/api/list</code>, <code>/guide</code>, <code>/llms.txt</code>.</p></div>
+  </div>
+</section>
+
+<section>
+  <h2>What it backs up</h2>
+  <p class="sub">Add <code>"container": "pg"</code> to run the dump inside <code>docker exec</code>.</p>
+  <div class="tblwrap"><table>
+    <tr><th>kind</th><th>how</th><th>restore</th></tr>
+    <tr><td><code>file</code></td><td><code>rsync</code> a path (local or <code>host:/path</code>)</td><td>rsync back</td></tr>
+    <tr><td><code>postgres</code></td><td><code>pg_dump | gzip</code> (optionally over ssh)</td><td><code>gunzip | psql</code></td></tr>
+    <tr><td><code>mysql</code></td><td><code>mysqldump | gzip</code> (optionally over ssh)</td><td><code>gunzip | mysql</code></td></tr>
+    <tr><td><code>mongo</code></td><td><code>mongodump --archive --gzip</code></td><td><code>mongorestore --archive --drop</code></td></tr>
+    <tr><td><code>custom</code></td><td>any shell command that writes the artifact</td><td>any shell command that reads it</td></tr>
+  </table></div>
+</section>
+
+<section>
+  <h2>Encrypt one target</h2>
+  <p class="sub">Other targets are untouched. Decrypt with <code>--identity &lt;file&gt;</code> or <code>MACHIN_VAULT_AGE_IDENTITY</code> at restore time.</p>
+<pre class="code">{ "name": "secrets-db", "kind": "custom", "command": "...", "ext": "tar.gz",
+  "encrypt": "age", "age_recipients": ["age1primary...", "age1breakglass..."],
+  "secrets": [{ "env": "MV_PW", "from": "file:/etc/machin-vault/secrets/db" }] }</pre>
+</section>
+
+<section>
+  <h2>Quickstart</h2>
+<pre class="code">curl -fsSL https://github.com/javimosch/machin-vault/releases/latest/download/machin-vault-linux-x86_64 -o machin-vault
+chmod +x machin-vault
+cp vault.json.example vault.json          # edit your targets
+./machin-vault -c vault.json backup       # back up everything now
+./machin-vault -c vault.json list         # see what you have
+./machin-vault guide --human              # the full operator manual</pre>
+  <p class="sub">Stateless: a plain cron line <code>machin-vault -c /etc/vault.json backup</code> is enough. Telemetry is one anonymous event per run (never contents, names, paths or credentials); <code>DO_NOT_TRACK=1</code> turns it off.</p>
+</section>
+
+<section id="limits">
+  <h2>Limits — read before trusting it</h2>
+  <ul class="lim">
+    <li><strong>Experimental and unaudited.</strong> It is a dogfooding tool for <a href="https://github.com/javimosch/machin">machin</a>; test your restores.</li>
+    <li>The prebuilt binary is <strong>Linux x86_64 only</strong>. Latest release is v0.2.0; age encryption and secrets need a build from <code>main</code> (needs machin v0.83.0+ and zig).</li>
+    <li>The legacy global <code>encrypt_password</code> uses <code>openssl aes-256-cbc</code>, which is <strong>unauthenticated</strong>. Use per-target <code>age</code> instead.</li>
+    <li>age encryption is not supported for <code>kind: file</code> (rsync can't stream) — wrap it in a custom <code>tar</code> command.</li>
+    <li>Secrets stay out of local argv, but a remote tool may still show a password in the <em>remote</em> host's <code>ps</code>. Prefer a dump-only command on the DB host.</li>
+    <li><code>serve</code> reads <code>vault.json</code> once at startup: restart it after editing.</li>
+  </ul>
+</section>
+
+<footer>
+  MIT · <a href="https://github.com/javimosch/machin-vault">github.com/javimosch/machin-vault</a> · built with <a href="https://github.com/javimosch/machin">machin</a> · <a href="https://intrane.fr">intrane.fr</a>
+</footer>
+</div>
+</body>
+</html>

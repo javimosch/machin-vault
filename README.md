@@ -1,4 +1,9 @@
+<p align="center"><img src="docs/icon.svg" width="112" alt="machin-vault icon: a stack of backup versions with a restore arrow"></p>
+
 # machin-vault
+
+**Site:** https://javimosch.github.io/machin-vault/ · **Status:** experimental, unaudited;
+age encryption and secrets are on `main` (v0.3.0), the latest binary release is v0.2.0.
 
 A single self-hostable binary that backs up your files and databases — and, when
 something is lost, lets an **agent recover it in one glance**. CLI-first and
@@ -101,8 +106,8 @@ stylesheet comes from its pure-MFL Tailwind engine; the UI components under
 MACHIN=/path/to/machin MACHIN_WEB_UI=/path/to/machin-web-ui ./build.sh
 ```
 
-The whole thing is ~600 lines of [MFL](https://github.com/javimosch/machin) across
-`src/` — the CLI, the HTTP server, the JSON API, and the reactive UI, with **zero
+The whole thing is about 2,000 lines of [MFL](https://github.com/javimosch/machin) across
+`src/`, including the vendored web framework — the CLI, the HTTP server, the JSON API, and the reactive UI, with **zero
 runtime dependencies** in the shipped binary. It's a dogfooding tool for machin: a
 real product the language had to be good enough to build.
 

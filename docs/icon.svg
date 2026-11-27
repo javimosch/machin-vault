@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="machin-vault">
+<rect x="4" y="4" width="120" height="120" rx="28" fill="#8a5a12"/>
+<rect x="22" y="36" width="62" height="16" rx="4" fill="#f7f2e8" fill-opacity="0.55"/>
+<path d="M30 44h14M50 44h6" stroke="#8a5a12" stroke-width="3" stroke-linecap="round" stroke-opacity="0.6"/>
+<rect x="22" y="58" width="62" height="16" rx="4" fill="#f7f2e8" fill-opacity="0.75"/>
+<path d="M30 66h14M50 66h6" stroke="#8a5a12" stroke-width="3" stroke-linecap="round" stroke-opacity="0.6"/>
+<rect x="22" y="80" width="62" height="16" rx="4" fill="#f7f2e8" fill-opacity="1.0"/>
+<path d="M30 88h14M50 88h6" stroke="#8a5a12" stroke-width="3" stroke-linecap="round" stroke-opacity="0.9"/>
+<path d="M92 90 A26 26 0 0 0 92 44" fill="none" stroke="#f2c46d" stroke-width="7" stroke-linecap="round"/>
+<path d="M80 40 L94 36 L96 51 Z" fill="#f2c46d"/>
+</svg>
