@@ -6,6 +6,14 @@
 // Storage is stateless: artifacts live at <store>/<target>/<name>_<ts>_<sha8>.<ext>
 // (+ ".enc" for legacy openssl, ".age" for per-target age), so `list` just scans the filesystem — no index to corrupt.
 
+// Secret: a value injected into the target's command ENVIRONMENT at run time.
+// from = "file:/abs/path" (root-only file, mode 0600/0400) or "env:NAME" (the vault's own env).
+// The value never appears in vault.json, in argv, or in machin-vault's output.
+type Secret struct {
+    env string
+    from string
+}
+
 type Target struct {
     name string
     kind string        // file | mongo | postgres | mysql | custom
@@ -21,6 +29,8 @@ type Target struct {
     retention int      // keep N most recent unique versions (default 7)
     encrypt string     // optional, per target: "age" = encrypt this target's artifacts
                        // with age (X25519 + ChaCha20-Poly1305). Overrides encrypt_password.
+    secrets []Secret   // optional: [{"env":"MV_PW","from":"file:/etc/machin-vault/secrets/x"}];
+                       // the command/restore reference "$MV_PW" instead of a literal password.
     age_recipients []string  // encrypt="age": public recipients ("age1..."). Only PUBLIC
                        // keys live here; the identity is passed at unpack/restore time.
 }
@@ -49,6 +59,13 @@ func find_target(cfg, name) (t) {
         if x.name == name { t = x  return t }
     }
     die(90, "no such target: " + name)
+}
+
+// mysql_pw: legacy inline password, or nothing (then mysql reads MYSQL_PWD from the env,
+// e.g. via secrets: [{"env":"MYSQL_PWD",...}] for a local mysql).
+func mysql_pw(t) (p) {
+    p = ""
+    if t.password != "" { p = " -p" + t.password }
 }
 
 func ext_of(t) (e) {
@@ -84,7 +101,7 @@ func backup_cmd(t, out) (cmd) {
         return cmd
     }
     if t.kind == "mysql" {
-        inner := "mysqldump -u" + t.user + " -p" + t.password + " " + t.db + " | gzip"
+        inner := "mysqldump -u" + t.user + mysql_pw(t) + " " + t.db + " | gzip"
         if t.ssh != "" { cmd = "ssh " + t.ssh + " '" + inner + "' > " + out } else { cmd = inner + " > " + out }
         return cmd
     }
@@ -108,7 +125,7 @@ func restore_cmd(t, in) (cmd) {
         return cmd
     }
     if t.kind == "mysql" {
-        inner := "mysql -u" + t.user + " -p" + t.password + " " + t.db
+        inner := "mysql -u" + t.user + mysql_pw(t) + " " + t.db
         if t.ssh != "" { cmd = "gunzip -c " + in + " | ssh " + t.ssh + " '" + inner + "'" } else { cmd = "gunzip -c " + in + " | " + inner }
         return cmd
     }

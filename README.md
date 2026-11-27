@@ -137,3 +137,22 @@ Opt in per target; other targets are untouched:
 - Overrides `encrypt_password` for that target. `list`/`get` report `"cipher":"age"`.
 - Mirrors that filter by extension must include `*.age`.
 - Tests: `tests/encrypt_test.sh` (round-trip cases need `age` on PATH).
+
+## Secrets (keep passwords out of vault.json)
+
+Per target, inject values into the command's **environment** instead of writing them in the config:
+
+```json
+{ "name": "vps1-mongo", "kind": "custom", "ext": "archive.gz",
+  "secrets": [{ "env": "MV_PW", "from": "file:/etc/machin-vault/secrets/vps1-mongo" }],
+  "command": "printf '%s\\n' \"$MV_PW\" | ssh vps1 'read -r P; docker exec mongo-shared mongodump --archive --gzip -u root --password \"$P\" --authenticationDatabase admin'" }
+```
+
+- `from`: `file:/abs/path` (mode **0600/0400**, else refused) or `env:NAME` (the vault's own environment).
+- The **shell** reads the file (`$(cat …)`) into the child's env: the value never appears in
+  vault.json, in any command line (`ps`), or in machin-vault's output; child errors are redacted (`***`).
+- Validated before the dump: bad name/path/mode → exit 80, missing file → 90, empty → 100.
+- mysql: omit `password`, use `{"env":"MYSQL_PWD",…}`; postgres: `PGPASSWORD`.
+- **ssh caveat:** `ssh h "cmd $MV_PW"` expands locally into ssh's argv — send it on stdin as above.
+  The remote tool may still show it in the remote `ps`; best is a dump-only command on the DB host.
+- `machin-vault guide` (or `guide --human`) is the full operator manual. Tests: `tests/secrets_test.sh`.

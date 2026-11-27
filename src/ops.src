@@ -93,6 +93,63 @@ func cipher_of(v) (c) {
     if v.enc == 2 { c = "age" }
 }
 
+// ---- secrets: env injection without the value passing through argv or machin-vault ----
+// secrets_prelude returns a POSIX shell prefix that loads each secret into the child's
+// environment. For file: refs the SHELL reads the file ($(cat ...)), so the value is never
+// in a command line, never in vault.json, never in machin-vault's memory or output.
+// Everything is validated BEFORE the dump starts.
+
+func valid_env_name(n) (ok) {
+    ok = false
+    if n == "" { return ok }
+    i := 0
+    for i < len(n) {
+        ch := substr(n, i, i + 1)
+        good := false
+        if index("ABCDEFGHIJKLMNOPQRSTUVWXYZ_", ch) >= 0 { good = true }
+        if i > 0 { if index("0123456789", ch) >= 0 { good = true } }
+        if good == false { return ok }
+        i = i + 1
+    }
+    ok = true
+}
+
+func secrets_prelude(t) (p) {
+    p = ""
+    for _, s := range t.secrets {
+        if valid_env_name(s.env) == false { die(80, "target " + t.name + ": secret env name must match [A-Z_][A-Z0-9_]*: " + s.env) }
+        if has_prefix(s.from, "file:") {
+            path := substr(s.from, 5, len(s.from))
+            if has_prefix(path, "/") == false { die(80, "target " + t.name + ": secret " + s.env + ": file path must be absolute") }
+            if index(path, "'") >= 0 { die(80, "target " + t.name + ": secret " + s.env + ": bad file path") }
+            if file_size(path) < 0 { die(90, "target " + t.name + ": secret " + s.env + ": file not readable: " + path) }
+            _, mode, _ := exec("stat -c %a " + shq(path))
+            mode = trim(mode)
+            if has_suffix(mode, "00") == false { die(80, "target " + t.name + ": secret " + s.env + ": " + path + " is mode " + mode + ", must be 0600 or 0400") }
+            p = p + "{ " + s.env + "=$(cat " + shq(path) + ") && [ -n \"$" + s.env + "\" ]; } || { echo 'secret " + s.env + ": empty or unreadable' >&2; exit 97; }; export " + s.env + "; "
+        } else if has_prefix(s.from, "env:") {
+            src := substr(s.from, 4, len(s.from))
+            if valid_env_name(src) == false { die(80, "target " + t.name + ": secret " + s.env + ": bad env source name") }
+            if env(src) == "" { die(80, "target " + t.name + ": secret " + s.env + ": environment variable " + src + " is not set") }
+            if src != s.env { p = p + s.env + "=\"$" + src + "\"; " }
+            p = p + "export " + s.env + "; "
+        } else {
+            die(80, "target " + t.name + ": secret " + s.env + ": from must be file:/path or env:NAME")
+        }
+    }
+}
+
+// redact replaces any resolved secret value in a message (child stderr) with ***.
+func redact(t, msg) (out) {
+    out = msg
+    for _, s := range t.secrets {
+        v := ""
+        if has_prefix(s.from, "file:") { v = trim(read_file(substr(s.from, 5, len(s.from)))) }
+        if has_prefix(s.from, "env:") { v = env(substr(s.from, 4, len(s.from))) }
+        if len(v) >= 4 { out = replace(out, v, "***") }
+    }
+}
+
 // ---- per-target age encryption ----
 // A target with "encrypt":"age" is NEVER written in plaintext: the dump streams
 // through tee (sha256 for unchanged-detection) straight into age, inside a 0700 dir
@@ -140,6 +197,7 @@ func age_identity(flagval) (id) {
 // backup_age_body: the encrypted twin of backup_body.
 func backup_age_body(cfg, t) (body) {
     rargs := age_check(t)
+    pre := secrets_prelude(t)   // validate secrets before anything is created
     dir := cfg.store + "/" + t.name
     sh("mkdir -p " + shq(dir))
     work := dir + "/.tmp-" + to_hex(rand_bytes(8))
@@ -147,12 +205,12 @@ func backup_age_body(cfg, t) (body) {
     fifo := work + "/f"
     shaf := work + "/sha"
     out := work + "/out.age"
-    script := "mkfifo " + shq(fifo) + "\n" +
+    script := pre + "\n" + "mkfifo " + shq(fifo) + "\n" +
         "sha256sum < " + shq(fifo) + " > " + shq(shaf) + " &\nh=$!\n" +
         "{ " + backup_cmd(t, "/dev/stdout") + " ; } | tee " + shq(fifo) + " | age" + rargs + " -o " + shq(out) + "\n" +
         "rc=$?\nwait $h || rc=1\nexit $rc"
     code, err := run_script(work + "/run.sh", script)
-    if code != 0 { system("rm -rf " + shq(work))  die(100, "encrypted backup failed (" + str(code) + "): " + trim(err)) }
+    if code != 0 { system("rm -rf " + shq(work))  die(100, "encrypted backup failed (" + str(code) + "): " + redact(t, trim(err))) }
     full := trim(read_file(shaf))
     if len(full) < 64 { system("rm -rf " + shq(work))  die(100, "encrypted backup failed: no checksum") }
     if has_prefix(full, "e3b0c44298fc1c149afbf4c8996fb924") { system("rm -rf " + shq(work))  die(100, "encrypted backup failed: dump produced no output") }
@@ -181,9 +239,9 @@ func backup_body(cfg, t) (body) {
     dir := cfg.store + "/" + t.name
     sh("mkdir -p " + dir)
     tmp := "/tmp/mv-" + to_hex(rand_bytes(8))
-    bc := backup_cmd(t, tmp)
-    code, _, err := exec(bc)
-    if code != 0 { system("rm -f " + tmp)  die(100, "backup failed: " + trim(err)) }
+    bc := secrets_prelude(t) + backup_cmd(t, tmp)
+    code, _, err := exec("umask 077; " + bc)
+    if code != 0 { system("rm -f " + tmp)  die(100, "backup failed: " + redact(t, trim(err))) }
     sha := substr(to_hex(sha256_bytes(read_file_bytes(tmp))), 0, 12)
     vs := versions(cfg, t)
     if len(vs) > 0 { if vs[0].sha == sha { system("rm -f " + tmp)  body = "\"target\":\"" + t.name + "\",\"skipped\":true,\"reason\":\"unchanged\",\"sha\":\"" + sha + "\""  return body } }
@@ -267,12 +325,13 @@ func op_restore(cfg, name, version, yes, identity) {
     v := pick(versions(cfg, t), version)
     if v.enc == 2 {
         id := age_identity(identity)
+        pre := secrets_prelude(t)
         work := "/tmp/mv-restore-" + to_hex(rand_bytes(6))
         sh("mkdir -m 700 " + work)
         // decrypt streams into the restore command — no plaintext on disk.
-        code, err := run_script(work + "/run.sh", "age -d -i " + shq(id) + " " + shq(v.file) + " | { " + restore_cmd(t, "/dev/stdin") + " ; }")
+        code, err := run_script(work + "/run.sh", pre + "age -d -i " + shq(id) + " " + shq(v.file) + " | { " + restore_cmd(t, "/dev/stdin") + " ; }")
         system("rm -rf " + work)
-        if code != 0 { die(100, "restore failed: " + trim(err)) }
+        if code != 0 { die(100, "restore failed: " + redact(t, trim(err))) }
         emit("\"target\":\"" + name + "\",\"restored_version\":" + str(v.unix) + ",\"sha\":\"" + v.sha + "\",\"cipher\":\"age\"")
         return
     }
@@ -282,9 +341,9 @@ func op_restore(cfg, name, version, yes, identity) {
         in = "/tmp/mv-restore-" + to_hex(rand_bytes(6))
         sh("openssl enc -d -aes-256-cbc -pbkdf2 -in " + v.file + " -out " + in + " -pass pass:" + cfg.encrypt_password)
     }
-    rc := restore_cmd(t, in)
+    rc := secrets_prelude(t) + restore_cmd(t, in)
     code, _, err := exec(rc)
     if v.enc == 1 { system("rm -f " + in) }
-    if code != 0 { die(100, "restore failed: " + trim(err)) }
+    if code != 0 { die(100, "restore failed: " + redact(t, trim(err))) }
     emit("\"target\":\"" + name + "\",\"restored_version\":" + str(v.unix) + ",\"sha\":\"" + v.sha + "\"")
 }
