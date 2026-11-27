@@ -70,6 +70,8 @@ func handle(cfg, cfgpath, self, req) (res) {
     if req.path == "/app.wasm" {
         return ok_wasm(read_file_bytes("app.wasm"))
     }
+    if req.path == "/guide" { return ok_json(guide_json()) }
+    if req.path == "/llms.txt" { return response("200 OK", "text/plain; charset=utf-8", guide_llms()) }
     if has_prefix(req.path, "/api/list") {
         return ok_json(wrap(list_body(cfg, "")))
     }

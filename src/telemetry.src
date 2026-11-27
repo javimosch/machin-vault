@@ -275,7 +275,7 @@ func tel_status_json() (tjson) {
 // ---- the three host definitions this module needs ----
 // machin-vault had no version function at all — help-json's "version":"1" is the
 // schema version, not the tool's. This matches the first published release.
-func vault_version()  (tstr) { tstr = "0.2.0" }
+func vault_version()  (tstr) { tstr = "0.3.0" }
 func tel_tool()       (tstr) { tstr = "machin-vault" }
 func tel_version()    (tstr) { tstr = vault_version() }
 func tel_envprefix()  (tstr) { tstr = "MACHIN_VAULT" }
